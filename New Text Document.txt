@@ -1,0 +1,111 @@
+import os
+import re
+from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Pt, RGBColor
+
+# Cấu hình số dòng kẻ cho từng phần đề thi
+SO_DONG_PHAN_1 = 3      # Phần trắc nghiệm 4 đáp án (cho nháp ngắn)
+SO_DONG_PHAN_2 = 4      # Phần trắc nghiệm đúng/sai
+SO_DONG_PHAN_3 = 6      # Phần trả lời ngắn / tự luận
+
+# Ký tự dòng chấm cách quãng vừa mắt
+DONG_CHAM = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ."
+
+def chen_doan_sau(target_p, text):
+    """Chèn một đoạn văn bản mới ngay phía sau paragraph chỉ định bằng can thiệp XML."""
+    new_p_elm = OxmlElement('w:p')
+    target_p._p.addnext(new_p_elm)
+    
+    # Khởi tạo đối tượng paragraph từ thẻ XML vừa tạo
+    from docx.text.paragraph import Paragraph
+    new_p = Paragraph(new_p_elm, target_p._parent)
+    run = new_p.add_run(text)
+    
+    # Định dạng dòng chấm chấm mờ, cỡ chữ gọn gàng
+    run.font.size = Pt(11)
+    run.font.name = "Times New Roman"
+    run.font.color.rgb = RGBColor(140, 140, 140)  # Màu xám vừa mắt
+    new_p.paragraph_format.space_before = Pt(0)
+    new_p.paragraph_format.space_after = Pt(4)
+    return new_p
+
+def xu_ly_file_docx(input_path, output_path):
+    print(f"-> Đang xử lý: {os.path.basename(input_path)}...")
+    doc = Document(input_path)
+    
+    paragraphs = doc.paragraphs
+    so_luong = len(paragraphs)
+    
+    phan_hien_tai = 1
+    
+    # Thu thập các vị trí cần chèn (chỉ số của paragraph)
+    # Duyệt ngược từ dưới lên trên để khi chèn thêm node không làm sai lệch chỉ số
+    vi_tri_chen = []
+    
+    for i in range(so_luong):
+        p = paragraphs[i]
+        txt = p.text.strip()
+        
+        # Nhận diện chuyển đổi giữa các phần
+        if re.search(r"Phần\s+I\b", txt, re.IGNORECASE):
+            phan_hien_tai = 1
+        elif re.search(r"Phần\s+II\b", txt, re.IGNORECASE):
+            phan_hien_tai = 2
+        elif re.search(r"Phần\s+III\b", txt, re.IGNORECASE):
+            phan_hien_tai = 3
+            
+        la_diem_ngat_cau = False
+        
+        # Nếu đoạn tiếp theo bắt đầu bằng "Câu X" hoặc "Phần ..."
+        if i + 1 < so_luong:
+            next_txt = paragraphs[i + 1].text.strip()
+            if re.match(r"^(Câu\s+\d+|Phần\s+[IVXLCDM]+)", next_txt, re.IGNORECASE) and len(txt) > 0:
+                la_diem_ngat_cau = True
+        elif i == so_luong - 1 and len(txt) > 0:
+            la_diem_ngat_cau = True
+            
+        if la_diem_ngat_cau:
+            # Xác định số dòng cần chèn
+            so_dong = SO_DONG_PHAN_1
+            if phan_hien_tai == 2:
+                so_dong = SO_DONG_PHAN_2
+            elif phan_hien_tai == 3:
+                so_dong = SO_DONG_PHAN_3
+                
+            vi_tri_chen.append((p, so_dong))
+            
+    # Tiến hành chèn dòng kẻ
+    for p, so_dong in reversed(vi_tri_chen):
+        p_moc = p
+        for _ in range(so_dong):
+            p_moc = chen_doan_sau(p_moc, DONG_CHAM)
+
+    doc.save(output_path)
+    print(f"   => Đã lưu thành công: {os.path.basename(output_path)}")
+
+def main():
+    thu_muc_hien_tai = os.path.dirname(os.path.abspath(__file__))
+    input_dir = os.path.join(thu_muc_hien_tai, "input")
+    output_dir = os.path.join(thu_muc_hien_tai, "output")
+    
+    os.makedirs(input_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    danh_sach_file = [f for f in os.listdir(input_dir) if f.endswith(".docx") and not f.startswith("~$")]
+    
+    if not danh_sach_file:
+        print("Chưa có file .docx nào trong thư mục 'input'!")
+        print("Hãy copy các file đề vào thư mục 'input' rồi chạy lại.")
+        return
+        
+    for f in danh_sach_file:
+        in_p = os.path.join(input_dir, f)
+        out_p = os.path.join(output_dir, f.replace(".docx", "_co_dong_ke.docx"))
+        xu_ly_file_docx(in_p, out_p)
+        
+    print("\nHoàn tất toàn bộ file!")
+
+if __name__ == "__main__":
+    main()
